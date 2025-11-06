@@ -15,6 +15,12 @@ on:
         required: true
         default: "SmsForwarder"
 
+# 必要的权限，确保 GITHUB_TOKEN 能创建 release / 上传资源，根据copilot建议修改
+permissions:
+  contents: write
+  packages: write
+  actions: read
+  
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -45,6 +51,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
+          token: ${{ secrets.GITHUB_TOKEN }} # 根据copilot建议增加
           tag_name: ${{ github.ref }}
           release_name: SmsForwarder ${{ github.ref }}
           draft: false
@@ -55,4 +62,6 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
+          token: ${{ secrets.GITHUB_TOKEN }} # 根据copilot建议增加
           asset_paths: '["./build/app/outputs/apk/release/SmsF_*"]'
+
