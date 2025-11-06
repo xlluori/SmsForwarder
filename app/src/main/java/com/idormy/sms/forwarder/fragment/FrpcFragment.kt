@@ -9,6 +9,7 @@ import androidx.fragment.app.viewModels
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.RecyclerView.RecycledViewPool
 import com.alibaba.android.vlayout.VirtualLayoutManager
+import com.idormy.sms.forwarder.App
 import com.idormy.sms.forwarder.R
 import com.idormy.sms.forwarder.adapter.FrpcPagingAdapter
 import com.idormy.sms.forwarder.core.BaseFragment
@@ -17,7 +18,16 @@ import com.idormy.sms.forwarder.database.viewmodel.BaseViewModelFactory
 import com.idormy.sms.forwarder.database.viewmodel.FrpcViewModel
 import com.idormy.sms.forwarder.databinding.FragmentFrpcsBinding
 import com.idormy.sms.forwarder.service.ForegroundService
-import com.idormy.sms.forwarder.utils.*
+import com.idormy.sms.forwarder.utils.ACTION_START
+import com.idormy.sms.forwarder.utils.EVENT_FRPC_DELETE_CONFIG
+import com.idormy.sms.forwarder.utils.EVENT_FRPC_RUNNING_ERROR
+import com.idormy.sms.forwarder.utils.EVENT_FRPC_RUNNING_SUCCESS
+import com.idormy.sms.forwarder.utils.EVENT_FRPC_UPDATE_CONFIG
+import com.idormy.sms.forwarder.utils.FRPC_LIB_VERSION
+import com.idormy.sms.forwarder.utils.FrpcUtils
+import com.idormy.sms.forwarder.utils.INTENT_FRPC_APPLY_FILE
+import com.idormy.sms.forwarder.utils.INTENT_FRPC_EDIT_FILE
+import com.idormy.sms.forwarder.utils.XToastUtils
 import com.jeremyliao.liveeventbus.LiveEventBus
 import com.scwang.smartrefresh.layout.api.RefreshLayout
 import com.xuexiang.xaop.annotation.SingleClick
@@ -41,7 +51,7 @@ import kotlinx.coroutines.launch
 @Page(name = "Frp内网穿透")
 class FrpcFragment : BaseFragment<FragmentFrpcsBinding?>(), FrpcPagingAdapter.OnItemClickListener {
 
-    var titleBar: TitleBar? = null
+    private var titleBar: TitleBar? = null
     private var adapter = FrpcPagingAdapter(this)
     private val viewModel by viewModels<FrpcViewModel> { BaseViewModelFactory(context) }
 
@@ -137,13 +147,18 @@ class FrpcFragment : BaseFragment<FragmentFrpcsBinding?>(), FrpcPagingAdapter.On
             }
 
             R.id.iv_play -> {
+                if (!App.FrpclibInited) {
+                    XToastUtils.error(String.format(getString(R.string.frpclib_download_title), FRPC_LIB_VERSION))
+                    return
+                }
+
                 if (!ForegroundService.isRunning) {
-                    Intent(requireContext(), ForegroundService::class.java).also {
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                            requireContext().startForegroundService(it)
-                        } else {
-                            requireContext().startService(it)
-                        }
+                    val serviceIntent = Intent(requireContext(), ForegroundService::class.java)
+                    serviceIntent.action = ACTION_START
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                        requireContext().startForegroundService(serviceIntent)
+                    } else {
+                        requireContext().startService(serviceIntent)
                     }
                 }
 
@@ -182,6 +197,11 @@ class FrpcFragment : BaseFragment<FragmentFrpcsBinding?>(), FrpcPagingAdapter.On
             }
 
             else -> {
+                if (!App.FrpclibInited) {
+                    XToastUtils.error(String.format(getString(R.string.frpclib_download_title), FRPC_LIB_VERSION))
+                    return
+                }
+
                 //编辑或删除需要先停止客户端
                 if (Frpclib.isRunning(item.uid)) {
                     XToastUtils.warning(R.string.tipServiceRunning)

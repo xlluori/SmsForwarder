@@ -1,25 +1,23 @@
 package com.idormy.sms.forwarder.receiver
 
 import android.content.Context
-import android.util.Log
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.workDataOf
 import com.google.gson.Gson
+import com.idormy.sms.forwarder.App.Companion.CALL_TYPE_MAP
 import com.idormy.sms.forwarder.R
 import com.idormy.sms.forwarder.entity.CallInfo
 import com.idormy.sms.forwarder.entity.MsgInfo
-import com.idormy.sms.forwarder.utils.CALL_TYPE_MAP
+import com.idormy.sms.forwarder.utils.Log
 import com.idormy.sms.forwarder.utils.PhoneUtils
 import com.idormy.sms.forwarder.utils.SettingUtils
 import com.idormy.sms.forwarder.utils.Worker
 import com.idormy.sms.forwarder.workers.SendWorker
 import com.xuexiang.xrouter.utils.TextUtils
-import com.xuexiang.xui.utils.ResUtils.getString
-import com.xuexiang.xutil.resource.ResUtils
-import java.util.*
+import com.xuexiang.xutil.resource.ResUtils.getString
+import java.util.Date
 
-@Suppress("DEPRECATION")
 open class CallReceiver : PhoneStateReceiver() {
 
     companion object {
@@ -87,7 +85,7 @@ open class CallReceiver : PhoneStateReceiver() {
         val msgInfo = MsgInfo("call", phoneNumber.toString(), msg.toString(), Date(), "", -1, 0, callType)
         val request = OneTimeWorkRequestBuilder<SendWorker>().setInputData(
             workDataOf(
-                Worker.sendMsgInfo to Gson().toJson(msgInfo)
+                Worker.SEND_MSG_INFO to Gson().toJson(msgInfo)
             )
         ).build()
         WorkManager.getInstance(context).enqueue(request)
@@ -129,12 +127,10 @@ open class CallReceiver : PhoneStateReceiver() {
             callInfo.name = if (contacts.isNotEmpty()) contacts[0].name else getString(R.string.unknown_number)
         }
 
-        val msgInfo = MsgInfo(
-            "call", callInfo.number, PhoneUtils.getCallMsg(callInfo), Date(), simInfo, simSlot, callInfo.subId
-        )
+        val msgInfo = MsgInfo("call", callInfo.number, PhoneUtils.getCallMsg(callInfo), Date(), simInfo, simSlot, callInfo.subId, callType)
         val request = OneTimeWorkRequestBuilder<SendWorker>().setInputData(
             workDataOf(
-                Worker.sendMsgInfo to Gson().toJson(msgInfo)
+                Worker.SEND_MSG_INFO to Gson().toJson(msgInfo)
             )
         ).build()
         WorkManager.getInstance(context).enqueue(request)

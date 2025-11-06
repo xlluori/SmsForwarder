@@ -3,14 +3,14 @@ package com.idormy.sms.forwarder.utils.sender
 import android.annotation.SuppressLint
 import android.text.TextUtils
 import android.util.Base64
-import android.util.Log
 import com.google.gson.Gson
 import com.idormy.sms.forwarder.database.entity.Rule
 import com.idormy.sms.forwarder.entity.MsgInfo
 import com.idormy.sms.forwarder.entity.setting.SocketSetting
+import com.idormy.sms.forwarder.utils.AppUtils
+import com.idormy.sms.forwarder.utils.Log
 import com.idormy.sms.forwarder.utils.SendUtils
 import com.idormy.sms.forwarder.utils.SettingUtils
-import com.xuexiang.xutil.app.AppUtils
 import org.eclipse.paho.client.mqttv3.IMqttDeliveryToken
 import org.eclipse.paho.client.mqttv3.MqttCallbackExtended
 import org.eclipse.paho.client.mqttv3.MqttClient
@@ -27,7 +27,8 @@ import java.net.URLEncoder
 import java.nio.charset.Charset
 import java.nio.charset.StandardCharsets
 import java.text.SimpleDateFormat
-import java.util.*
+import java.util.Date
+import java.util.UUID
 import javax.crypto.Mac
 import javax.crypto.spec.SecretKeySpec
 
@@ -56,7 +57,7 @@ class SocketUtils {
             if (!TextUtils.isEmpty(setting.secret)) {
                 val stringToSign = "$timestamp\n" + setting.secret
                 val mac = Mac.getInstance("HmacSHA256")
-                mac.init(SecretKeySpec(setting.secret?.toByteArray(StandardCharsets.UTF_8), "HmacSHA256"))
+                mac.init(SecretKeySpec(setting.secret.toByteArray(StandardCharsets.UTF_8), "HmacSHA256"))
                 val signData = mac.doFinal(stringToSign.toByteArray(StandardCharsets.UTF_8))
                 sign = URLEncoder.encode(String(Base64.encode(signData, Base64.NO_WRAP)), "UTF-8")
             }
@@ -86,11 +87,12 @@ class SocketUtils {
                     // 从服务器接收响应
                     val response = input.readLine()
                     Log.d(TAG, "从服务器接收的响应: $response")
-                    val status = if (!setting.response.isNullOrEmpty() && !response.contains(setting.response)) 0 else 2
+                    val status = if (setting.response.isNotEmpty() && !response.contains(setting.response)) 0 else 2
                     SendUtils.updateLogs(logId, status, response)
                     SendUtils.senderLogic(status, msgInfo, rule, senderIndex, msgId)
                 } catch (e: Exception) {
                     e.printStackTrace()
+                    Log.e(TAG, "An error occurred: ${e.message}")
                     val status = 0
                     SendUtils.updateLogs(logId, status, e.message.toString())
                     SendUtils.senderLogic(status, msgInfo, rule, senderIndex, msgId)
@@ -102,9 +104,9 @@ class SocketUtils {
             } else if (setting.method == "MQTT") {
                 // MQTT 连接参数
                 val uriType = if (TextUtils.isEmpty(setting.uriType)) "tcp" else setting.uriType
-                val brokerUrl = "${uriType}://${setting.address}:${setting.port}"
+                var brokerUrl = "${uriType}://${setting.address}:${setting.port}"
                 if (!TextUtils.isEmpty(setting.path)) {
-                    brokerUrl.plus(setting.path)
+                    brokerUrl += setting.path
                 }
                 Log.d(TAG, "MQTT brokerUrl: $brokerUrl")
                 val clientId = if (TextUtils.isEmpty(setting.clientId)) UUID.randomUUID().toString() else setting.clientId
@@ -141,7 +143,7 @@ class SocketUtils {
                         override fun messageArrived(topic: String?, inMessage: MqttMessage?) {
                             val payload = inMessage?.payload?.toString(Charset.forName(setting.inCharset))
                             Log.d(TAG, "Received message on topic $topic: $payload")
-                            val status = if (!setting.response.isNullOrEmpty() && !payload?.contains(setting.response)!!) 0 else 2
+                            val status = if (setting.response.isNotEmpty() && !payload?.contains(setting.response)!!) 0 else 2
                             SendUtils.updateLogs(logId, status, payload.toString())
                             SendUtils.senderLogic(status, msgInfo, rule, senderIndex, msgId)
                         }

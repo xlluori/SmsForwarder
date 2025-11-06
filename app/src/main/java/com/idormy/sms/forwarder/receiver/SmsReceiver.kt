@@ -4,26 +4,28 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.provider.Telephony
-import android.util.Log
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.workDataOf
 import com.google.gson.Gson
 import com.idormy.sms.forwarder.App
 import com.idormy.sms.forwarder.entity.MsgInfo
+import com.idormy.sms.forwarder.utils.Log
 import com.idormy.sms.forwarder.utils.PhoneUtils
 import com.idormy.sms.forwarder.utils.SettingUtils
 import com.idormy.sms.forwarder.utils.SmsCommandUtils
 import com.idormy.sms.forwarder.utils.Worker
 import com.idormy.sms.forwarder.workers.SendWorker
 import com.xuexiang.xrouter.utils.TextUtils
-import java.util.*
+import java.util.Date
 
 //短信广播
-@Suppress("PrivatePropertyName")
+@Suppress("PrivatePropertyName", "UNUSED_PARAMETER")
 class SmsReceiver : BroadcastReceiver() {
 
-    private var TAG = "SmsReceiver"
+    private var TAG = SmsReceiver::class.java.simpleName
+    private var from = ""
+    private var msg = ""
 
     override fun onReceive(context: Context, intent: Intent) {
         try {
@@ -31,19 +33,38 @@ class SmsReceiver : BroadcastReceiver() {
             if (SettingUtils.enablePureClientMode) return
 
             //过滤广播
-            if (intent.action != Telephony.Sms.Intents.SMS_RECEIVED_ACTION && intent.action != Telephony.Sms.Intents.SMS_DELIVER_ACTION) return
+            if (intent.action != Telephony.Sms.Intents.SMS_RECEIVED_ACTION
+                && intent.action != Telephony.Sms.Intents.SMS_DELIVER_ACTION
+                && intent.action != Telephony.Sms.Intents.WAP_PUSH_RECEIVED_ACTION
+                && intent.action != Telephony.Sms.Intents.WAP_PUSH_DELIVER_ACTION
+            ) return
 
-            var from = ""
-            var message = ""
-            for (smsMessage in Telephony.Sms.Intents.getMessagesFromIntent(intent)) {
-                from = smsMessage.displayOriginatingAddress
-                message += smsMessage.messageBody
+            if (intent.action == Telephony.Sms.Intents.WAP_PUSH_RECEIVED_ACTION || intent.action == Telephony.Sms.Intents.WAP_PUSH_DELIVER_ACTION) {
+                val contentType = intent.type
+                if (contentType == "application/vnd.wap.mms-message") {
+                    val pduType = intent.getStringExtra("transactionId")
+                    if ("mms" == pduType) {
+                        val data = intent.getByteArrayExtra("data")
+                        if (data != null) {
+                            // 处理收到的 MMS 数据
+                            handleMmsData(context, data)
+                        }
+                    }
+                }
+
+                from = intent.getStringExtra("address") ?: ""
+                Log.d(TAG, "from = $from, msg = $msg")
+            } else {
+                for (smsMessage in Telephony.Sms.Intents.getMessagesFromIntent(intent)) {
+                    from = smsMessage.displayOriginatingAddress
+                    msg += smsMessage.messageBody
+                }
             }
-            Log.d(TAG, "from = $from, message = $message")
+            Log.d(TAG, "from = $from, msg = $msg")
 
             //短信指令
-            if (SettingUtils.enableSmsCommand && message.startsWith("smsf#")) {
-                doSmsCommand(context, from, message)
+            if (SettingUtils.enableSmsCommand && msg.startsWith("smsf#")) {
+                doSmsCommand(context, from, msg)
                 return
             }
 
@@ -85,12 +106,12 @@ class SmsReceiver : BroadcastReceiver() {
                 else -> ""
             }
 
-            val msgInfo = MsgInfo("sms", from, message, Date(), simInfo, simSlot, subscription)
+            val msgInfo = MsgInfo("sms", from, msg, Date(), simInfo, simSlot, subscription)
             Log.d(TAG, "msgInfo = $msgInfo")
 
             val request = OneTimeWorkRequestBuilder<SendWorker>().setInputData(
                 workDataOf(
-                    Worker.sendMsgInfo to Gson().toJson(msgInfo)
+                    Worker.SEND_MSG_INFO to Gson().toJson(msgInfo)
                 )
             ).build()
             WorkManager.getInstance(context).enqueue(request)
@@ -122,6 +143,58 @@ class SmsReceiver : BroadcastReceiver() {
 
         val smsCommand = message.substring(5)
         SmsCommandUtils.execute(context, smsCommand)
+    }
+
+    private fun handleMmsData(context: Context, data: ByteArray) {
+        try {
+            val mmsClass = Class.forName("android.telephony.gsm.SmsMessage")
+            val method = mmsClass.getDeclaredMethod("createFromPdu", ByteArray::class.java)
+            val pdus = arrayOf(data)
+            val messages = mutableListOf<Any>()
+
+            for (pdu in pdus) {
+                val message = method.invoke(null, pdu)
+                message?.let { messages.add(it) }
+            }
+
+            // 处理 MMS 中的各个部分
+            for (message in messages) {
+                // 获取 MMS 的各个部分
+                val parts = message.javaClass.getMethod("getParts").invoke(message) as? Array<*>
+
+                // 遍历 MMS 的各个部分
+                parts?.forEach { part ->
+                    // 获取部分的内容类型
+                    val contentType = part?.javaClass?.getMethod("getContentType")?.invoke(part) as? String
+
+                    // 处理文本部分
+                    if (contentType?.startsWith("text/plain") == true) {
+                        val text = part.javaClass.getMethod("getData").invoke(part) as? String
+                        // 处理文本信息
+                        if (text != null) {
+                            Log.d(TAG, "Text: $text")
+                            msg += text
+                        }
+                    }
+
+                    // 处理图像部分
+                    if (contentType?.startsWith("image/") == true) {
+                        val imageData = part.javaClass.getMethod("getData").invoke(part) as? ByteArray
+                        // 处理图像信息
+                        if (imageData != null) {
+                            // 在这里你可以保存图像数据或进行其他处理
+                            Log.d(TAG, "Image data received")
+                        }
+                    }
+
+                    // 其他部分的处理可以根据需要继续扩展
+                }
+            }
+
+        } catch (e: Exception) {
+            e.printStackTrace()
+            Log.e(TAG, "handleMmsData: $e")
+        }
     }
 
 }
